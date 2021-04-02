@@ -1,0 +1,75 @@
+name: Pre-compile llvm ARM64
+
+on:
+  push:
+    branches: [ release_100, release_11x, release_12x ]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    container:
+      image: localhost:5000/flang-ubuntu20
+      credentials:
+        username: jenkins
+    strategy:
+      matrix:
+        target: [AArch64]
+        cc: [clang]
+        cpp: [clang++]
+        version: [9, 10, 11]
+        include:
+          - target: AArch64
+            cc: gcc
+            cpp: g++
+            version: 9
+          - target: AArch64
+            cc: gcc
+            cpp: g++
+            version: 10
+            
+    steps:
+      - name: Check tools
+        run: |
+          git --version
+          cmake --version
+          make --version
+          ${{ matrix.cc }}-${{ matrix.version }} --version
+          ${{ matrix.cpp }}-${{ matrix.version }} --version
+      
+      - name: Extract branch name
+        run: echo "::set-output name=branch::${GITHUB_REF#refs/heads/}"
+        id: extract_branch
+
+      - name: Build llvm
+        run: |
+          # exit the llvm dir, so the path is the same on subsequent projects
+          cd ../..
+          rm -rf classic-flang-llvm-project
+          # clone manually, because checkout does not allow exiting llvm dir
+          git clone --depth 1 --single-branch --branch ${{ steps.extract_branch.outputs.branch }} https://github.com/flang-compiler/classic-flang-llvm-project.git
+          cd classic-flang-llvm-project
+          # After build place the artifacts in classic-flang-llvm-project/classic-flang-llvm-project, so Upload can find them.
+          mkdir classic-flang-llvm-project
+          mkdir -p build && cd build
+          # Pass the options directly, to avoid issues with quotation marks
+          cmake -DLLVM_TARGETS_TO_BUILD=${{ matrix.target }} \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=/usr/bin/${{ matrix.cc }}-${{ matrix.version }} \
+            -DCMAKE_CXX_COMPILER=/usr/bin/${{ matrix.cpp }}-${{ matrix.version }} \
+            -DLLVM_ENABLE_PROJECTS="clang;openmp" \
+            -DLLVM_ENABLE_CLASSIC_FLANG=ON \
+            ../llvm
+          make -j`nproc --ignore=1`
+          
+          # Archive the source + build directories for future installation
+          cd ../..
+          tar -zcf llvm_build.tar.gz classic-flang-llvm-project
+          # Upload will only look in $GITHUB_WORKSPACE or its subdirs.
+          mv llvm_build.tar.gz classic-flang-llvm-project/classic-flang-llvm-project/.
+      
+      - name: Upload llvm
+        uses: actions/upload-artifact@v2
+        with:
+          name: llvm_build_${{ matrix.target }}_${{ matrix.cc }}_${{ matrix.version }}_${{ steps.extract_branch.outputs.branch }}
+          path: llvm_build.tar.gz
