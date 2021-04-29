@@ -1,4 +1,4 @@
-name: Test Flang
+name: Build and test Flang
 
 on:
   pull_request:
@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-20.04
+    env:
+      install_prefix: /usr/local
     strategy:
       matrix:
         target: [X86]
@@ -20,6 +22,8 @@ jobs:
             version: 10
             
     steps:
+      - uses: actions/checkout@v2
+
       - if: matrix.cc == 'clang'
         run: |
           sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
@@ -38,7 +42,12 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 20
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 10
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 20
-      
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: key-${{ matrix.cc }}-${{ matrix.version }}
+
       - name: Check tools
         run: |
           git --version
@@ -46,33 +55,30 @@ jobs:
           make --version
           ${{ matrix.cc }}-${{ matrix.version }} --version
           ${{ matrix.cpp }}-${{ matrix.version }} --version
-      
-      - name: Extract branch name
-        run: echo "::set-output name=branch::${GITHUB_REF#refs/heads/}"
-        id: extract_branch
 
       - name: Build llvm
         run: |
-          # exit the llvm dir, so the path is the same on subsequent projects
-          cd ../..
-          rm -rf classic-flang-llvm-project
-          # clone manually, because checkout does not allow exiting llvm dir
-          git clone --depth 1 --single-branch --branch ${{ steps.extract_branch.outputs.branch }} https://github.com/flang-compiler/classic-flang-llvm-project.git
-          cd classic-flang-llvm-project
-          # After build place the artifacts in classic-flang-llvm-project/classic-flang-llvm-project, so Upload can find them.
-          mkdir classic-flang-llvm-project
           mkdir -p build && cd build
           # Pass the options directly, to avoid issues with quotation marks
           cmake -DLLVM_TARGETS_TO_BUILD=${{ matrix.target }} \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_INSTALL_PREFIX=${{ env.install_prefix }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=/usr/bin/${{ matrix.cc }}-${{ matrix.version }} \
             -DCMAKE_CXX_COMPILER=/usr/bin/${{ matrix.cpp }}-${{ matrix.version }} \
             -DLLVM_ENABLE_PROJECTS="clang;openmp" \
             -DLLVM_ENABLE_CLASSIC_FLANG=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             ../llvm
           make -j$(nproc)
           sudo make install
+
+      - name: Checkout flang
+        run: |
+          cd ../..
+          git clone --depth 1 --single-branch --branch master https://github.com/flang-compiler/flang.git
+          cd flang
+          mkdir -p build && cd build
 
       - name: Build libpgmath
         run: |
@@ -83,7 +89,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=${{ env.install_prefix }}/bin/clang++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
-          cd runtime/libpgmath
+          cd ../../flang/runtime/libpgmath
           mkdir -p build && cd build
           cmake $CMAKE_OPTIONS ..
           make -j$(nproc)
@@ -91,6 +97,7 @@ jobs:
           
       - name: Build Flang
         run: |
+          cd ../../flang
           mkdir -p build && cd build
           cmake -DLLVM_TARGETS_TO_BUILD=${{ matrix.target }} \
             -DCMAKE_INSTALL_PREFIX=${{ env.install_prefix }} \
@@ -108,19 +115,12 @@ jobs:
           make -j$(nproc)
           sudo make install
 
-      # Copy llvm-lit
       - name: Copy llvm-lit
         run: |
-          cp ../../classic-flang-llvm-project/build/bin/llvm-lit build/bin/.
+          cd ../../flang
+          cp ../classic-flang-llvm-project/classic-flang-llvm-project/build/bin/llvm-lit build/bin/.
           
       - name: Test flang
         run: |
-          cd build
+          cd ../../flang/build
           make check-all
-
-      
-      - name: Upload llvm
-        uses: actions/upload-artifact@v2
-        with:
-          name: llvm_build_${{ matrix.target }}_${{ matrix.cc }}_${{ matrix.version }}_${{ steps.extract_branch.outputs.branch }}
-          path: llvm_build.tar.gz
