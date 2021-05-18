@@ -31,7 +31,7 @@ jobs:
           echo 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal-11 main' | sudo tee -a /etc/apt/sources.list.d/llvm.list
           echo 'deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-11 main'  | sudo tee -a /etc/apt/sources.list.d/llvm.list
           wget -q -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
-          sudo apt update
+          sudo apt update -y
           sudo apt install -f -y llvm-${{ matrix.version }} clang-${{ matrix.version}}
 
       - if: matrix.cc == 'gcc' && matrix.version == '10'
