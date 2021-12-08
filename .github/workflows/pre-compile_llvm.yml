@@ -19,6 +19,10 @@ jobs:
             cc: gcc
             cpp: g++
             version: 10
+          - target: X86
+            cc: gcc
+            cpp: g++
+            version: 11
             
     steps:
       - if: matrix.cc == 'clang'
@@ -39,6 +43,15 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 20
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 10
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 20
+          
+      - if: matrix.cc == 'gcc' && matrix.version == '11'
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
+          sudo apt install gcc-11 g++-11
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 10
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 20
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 10
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 20
       
       - name: Check tools
         run: |
